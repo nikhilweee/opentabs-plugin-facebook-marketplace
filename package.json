@@ -1,0 +1,50 @@
+{
+  "name": "opentabs-plugin-facebook-marketplace",
+  "description": "OpenTabs plugin for Facebook Marketplace",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/adapter.iife.js",
+  "keywords": [
+    "opentabs-plugin"
+  ],
+  "opentabs": {
+    "displayName": "Facebook Marketplace",
+    "description": "OpenTabs plugin for Facebook Marketplace",
+    "urlPatterns": [
+      "*://*.facebook.com/*"
+    ]
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && opentabs-plugin build",
+    "dev": "tsc --watch --preserveWatchOutput & opentabs-plugin build --watch",
+    "type-check": "tsc --noEmit",
+    "lint": "biome lint src/",
+    "lint:fix": "biome lint --fix src/",
+    "format:check": "biome format src/",
+    "format": "biome format --write src/",
+    "check": "npm run build && npm run type-check && npm run lint && npm run format:check"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "dependencies": {
+    "@opentabs-dev/plugin-sdk": "^0.0.108"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.5",
+    "@opentabs-dev/plugin-tools": "^0.0.108",
+    "jiti": "^2.6.1",
+    "typescript": "^5.9.3",
+    "zod": "^4.0.0"
+  }
+}

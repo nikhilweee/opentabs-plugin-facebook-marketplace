@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:opentabs.dev)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(npm run *)",
+      "Bash(opentabs tool *)",
+      "Bash(opentabs logs *)"
+    ]
+  }
+}
