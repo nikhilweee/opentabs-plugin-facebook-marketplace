@@ -31,7 +31,7 @@ export interface RawMarketplaceListingNode {
   location_text?: { text?: string };
   marketplace_listing_seller?: { id?: string; name?: string };
   primary_listing_photo?: { image?: { uri?: string } };
-  listing_photos?: Array<{ image?: { uri?: string } }>;
+  listing_photos?: Array<{ id?: string; image?: { uri?: string } }>;
   is_sold?: boolean;
   marketplace_listing_category_id?: string;
   redacted_description?: { text?: string };
@@ -39,6 +39,16 @@ export interface RawMarketplaceListingNode {
   marketplace_listing_condition?: string;
   condition?: string;
   creation_time?: number;
+  // Composer-state fields (present on /marketplace/create/item and
+  // /marketplace/edit SSR Relay payloads — used by edit_listing / create_listing
+  // when building the mutation input).
+  item_price?: { formatted?: string };
+  attribute_data?: Array<{ attribute_type?: string; value?: string }>;
+  delivery_types?: string[];
+  hidden_from_friends?: string;
+  is_photo_order_set_by_seller?: boolean;
+  sku?: string | null;
+  mp_comments_enabled?: boolean;
 }
 
 export interface RawMarketplaceListingEdge {

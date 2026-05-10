@@ -103,6 +103,7 @@ const knownOps = [
   'CometMarketplaceYouSellingFastContentContainerQuery',
   'MarketplaceYouSellingFastActiveSectionPaginationQuery',
   'useCometMarketplaceListingEditMutation',
+  'useCometMarketplaceListingCreateMutation',
 ];
 
 const populateDocIdCache = (): void => {
@@ -208,6 +209,102 @@ export const graphql = async <T = unknown>(
 };
 
 // ---------------------------------------------------------------------------
+// Photo upload (non-GraphQL — multipart to upload.facebook.com)
+// ---------------------------------------------------------------------------
+
+// Upload a single photo to Facebook's composer endpoint. Returns the photoID
+// suitable for use in marketplace listing mutations' `photo_ids` field.
+// `data` is base64-encoded image bytes (no `data:` prefix). `targetId` is the
+// destination marketplace's id (from viewer.marketplace_settings.current_marketplace.id).
+export const uploadPhoto = async (data: string, mime: string, filename: string, targetId: string): Promise<string> => {
+  const auth = requireAuth();
+
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+
+  // Read intrinsic dimensions — FB requires them as form fields. createImageBitmap
+  // is available in the page MAIN world where our adapter runs.
+  const bitmap = await createImageBitmap(blob);
+  const width = bitmap.width;
+  const height = bitmap.height;
+  bitmap.close();
+
+  // jazoest is a derived anti-CSRF token: "2" + sum of fb_dtsg char codes.
+  let jazoestSum = 0;
+  for (let i = 0; i < auth.fbDtsg.length; i++) jazoestSum += auth.fbDtsg.charCodeAt(i);
+  const jazoest = `2${jazoestSum}`;
+
+  // The full multipart payload the FB UI sends. `farr` is the file field
+  // (counter-intuitive — `source` is a separate string with value "8" that
+  // tags the upload source). Required string fields: fb_dtsg, qn, target_id,
+  // source, profile_id, waterfallxapp, upload_id, js_resized, plus dimension
+  // metadata. Captured from FB's React composer flow.
+  const formData = new FormData();
+  formData.append('fb_dtsg', auth.fbDtsg);
+  formData.append('qn', 'comet_marketplace_composer');
+  formData.append('target_id', targetId);
+  formData.append('source', '8');
+  formData.append('profile_id', auth.userId);
+  formData.append('waterfallxapp', 'comet');
+  formData.append('farr', blob, filename);
+  formData.append('upload_id', String(Date.now() % 100000));
+  formData.append('js_resized', 'false');
+  formData.append('original_file_size', String(blob.size));
+  formData.append('original_width', String(width));
+  formData.append('original_height', String(height));
+  formData.append('upload_width', String(width));
+  formData.append('upload_height', String(height));
+
+  const qs = new URLSearchParams({
+    av: auth.userId,
+    __user: auth.userId,
+    __a: '1',
+    __comet_req: '15',
+    fb_dtsg: auth.fbDtsg,
+    jazoest,
+    lsd: auth.lsd,
+  });
+  const url = `https://upload.facebook.com/ajax/react_composer/attachments/photo/upload?${qs.toString()}`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      clearAuthCache('facebook');
+      throw ToolError.auth('Photo upload unauthorized — session may have expired.');
+    }
+    throw httpStatusToToolError(resp, `Photo upload failed: HTTP ${resp.status}.`);
+  }
+
+  const text = await resp.text();
+  const cleaned = text.replace(/^for \(;;\);/, '');
+  let parsed: { payload?: { photoID?: string }; error?: { message?: string } };
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    log.error('uploadPhoto:non_json_response', { preview: text.slice(0, 500) });
+    throw ToolError.internal('Photo upload returned non-JSON response.');
+  }
+  if (parsed.error?.message) {
+    log.error('uploadPhoto:fb_error', { error: parsed.error });
+    throw ToolError.internal(`Photo upload error: ${parsed.error.message}`);
+  }
+  const photoId = parsed.payload?.photoID;
+  if (!photoId) {
+    log.error('uploadPhoto:no_photoid', { response_preview: cleaned.slice(0, 800) });
+    throw ToolError.internal('Photo upload returned no photoID.');
+  }
+  return photoId;
+};
+
+// ---------------------------------------------------------------------------
 // SSR / HTML scrape helpers
 // ---------------------------------------------------------------------------
 
@@ -258,6 +355,130 @@ export const populateDocIdCacheFromMetadata = (metadata: SSRQueryMetadata[]): vo
   for (const m of metadata) {
     if (!cache[m.queryName]) cache[m.queryName] = m.queryId;
   }
+};
+
+// Walk every Relay-prefetched payload and collect each fragment whose id ===
+// targetId and __typename matches a Marketplace listing. Merge them: first
+// non-empty value per key wins. Returns the merged fragment, or null if no
+// fragments match. Caller parameterises the shape via the `T` generic.
+export const findListingDetailById = <T = Record<string, unknown>>(
+  payloads: Array<{ data: unknown }>,
+  targetId: string,
+): T | null => {
+  const fragments: Array<Record<string, unknown>> = [];
+  for (const p of payloads) collectMatchingListingNodes(p.data, targetId, fragments);
+  if (fragments.length === 0) return null;
+  const merged: Record<string, unknown> = {};
+  for (const f of fragments) {
+    for (const [k, v] of Object.entries(f)) {
+      if (!isMeaningful(merged[k]) && isMeaningful(v)) merged[k] = v;
+    }
+  }
+  return merged as T;
+};
+
+const LISTING_TYPENAMES = /^GroupCommerceProductItem$|^Marketplace.*Listing|MarketplaceProductItem/;
+
+const collectMatchingListingNodes = (data: unknown, targetId: string, out: Array<Record<string, unknown>>): void => {
+  if (!data || typeof data !== 'object') return;
+  if (Array.isArray(data)) {
+    for (const item of data) collectMatchingListingNodes(item, targetId, out);
+    return;
+  }
+  const obj = data as Record<string, unknown>;
+  if (obj.id === targetId && typeof obj.__typename === 'string' && LISTING_TYPENAMES.test(obj.__typename)) {
+    out.push(obj);
+  }
+  for (const k of Object.keys(obj)) collectMatchingListingNodes(obj[k], targetId, out);
+};
+
+const isMeaningful = (v: unknown): boolean => {
+  if (v === undefined || v === null) return false;
+  if (typeof v === 'string') return v.length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v as object).length > 0;
+  return true;
+};
+
+// Walkers for shared composer-SSR state (lat/lng, currency, marketplace id) —
+// the seller's "Create" and "Edit" composer pages embed these in Relay
+// preloader payloads at various nested paths. Each walker scans recursively.
+
+export interface SellerLocation {
+  latitude: number;
+  longitude: number;
+}
+
+export const findSellLocation = (payloads: Array<{ data: unknown }>): SellerLocation | null => {
+  for (const p of payloads) {
+    const r = walkForKey(p.data, 'sell_location', v => {
+      const obj = v as { latitude?: unknown; longitude?: unknown };
+      return typeof obj.latitude === 'number' && typeof obj.longitude === 'number'
+        ? { latitude: obj.latitude, longitude: obj.longitude }
+        : null;
+    });
+    if (r) return r;
+  }
+  return null;
+};
+
+export const findPrimaryCurrency = (payloads: Array<{ data: unknown }>): string | null => {
+  for (const p of payloads) {
+    const r = walkForScalar(p.data, 'primary_currency');
+    if (typeof r === 'string') return r;
+  }
+  return null;
+};
+
+export const findCurrentMarketplaceId = (payloads: Array<{ data: unknown }>): string | null => {
+  for (const p of payloads) {
+    const r = walkForKey(p.data, 'current_marketplace', v => {
+      const obj = v as { id?: unknown };
+      return typeof obj.id === 'string' ? obj.id : null;
+    });
+    if (typeof r === 'string') return r;
+  }
+  return null;
+};
+
+const walkForKey = <T>(v: unknown, key: string, extract: (sub: unknown) => T | null): T | null => {
+  if (!v || typeof v !== 'object') return null;
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      const r = walkForKey(item, key, extract);
+      if (r !== null) return r;
+    }
+    return null;
+  }
+  const obj = v as Record<string, unknown>;
+  const direct = obj[key];
+  if (direct && typeof direct === 'object') {
+    const r = extract(direct);
+    if (r !== null) return r;
+  }
+  for (const k of Object.keys(obj)) {
+    const r = walkForKey(obj[k], key, extract);
+    if (r !== null) return r;
+  }
+  return null;
+};
+
+const walkForScalar = (v: unknown, key: string): unknown => {
+  if (!v || typeof v !== 'object') return null;
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      const r = walkForScalar(item, key);
+      if (r !== null) return r;
+    }
+    return null;
+  }
+  const obj = v as Record<string, unknown>;
+  if (obj[key] !== undefined && typeof obj[key] !== 'object') return obj[key];
+  for (const k of Object.keys(obj)) {
+    const r = walkForScalar(obj[k], key);
+    if (r !== null) return r;
+  }
+  return null;
 };
 
 // Extract Relay-prefetched payloads embedded in SSR <script type="application/json"> tags.

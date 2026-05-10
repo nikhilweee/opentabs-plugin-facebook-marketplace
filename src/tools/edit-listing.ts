@@ -1,6 +1,14 @@
 import { ToolError, defineTool, log } from '@opentabs-dev/plugin-sdk';
 import { z } from 'zod';
-import { extractRelayPayloads, fetchPageHtml, getCurrentUserId, graphql } from '../facebook-api.js';
+import {
+  extractRelayPayloads,
+  fetchPageHtml,
+  findListingDetailById,
+  findPrimaryCurrency,
+  findSellLocation,
+  getCurrentUserId,
+  graphql,
+} from '../facebook-api.js';
 import {
   type RawMarketplaceListingNode,
   mapMarketplaceListingDetail,
@@ -18,23 +26,6 @@ const CONDITION_INPUT_TO_FB = {
   USED_GOOD: 'used_good',
   USED_FAIR: 'used_fair',
 } as const;
-
-interface ComposerListingNode extends RawMarketplaceListingNode {
-  redacted_description?: { text?: string };
-  item_price?: { formatted?: string };
-  attribute_data?: Array<{ attribute_type?: string; value?: string }>;
-  delivery_types?: string[];
-  hidden_from_friends?: string;
-  is_photo_order_set_by_seller?: boolean;
-  listing_photos?: Array<{ id?: string; image?: { uri?: string } }>;
-  sku?: string | null;
-  mp_comments_enabled?: boolean;
-}
-
-interface SellerLocation {
-  latitude: number;
-  longitude: number;
-}
 
 interface EditMutationResponse {
   marketplace_listing_edit?: { listing?: RawMarketplaceListingNode };
@@ -74,7 +65,7 @@ export const editListing = defineTool({
     const html = await fetchPageHtml(url);
     const payloads = extractRelayPayloads(html);
 
-    const listing = findListingNode(payloads, params.listing_id);
+    const listing = findListingDetailById<RawMarketplaceListingNode>(payloads, params.listing_id);
     if (!listing) {
       throw ToolError.notFound(
         `Listing ${params.listing_id} not editable from /marketplace/edit/. It may not exist or you're not the seller.`,
@@ -171,105 +162,15 @@ export const editListing = defineTool({
     // for consistency with get_listing's output shape.
     const detailUrl = `https://www.facebook.com/marketplace/item/${encodeURIComponent(params.listing_id)}/`;
     const detailHtml = await fetchPageHtml(detailUrl);
-    const detailMerged = findListingNode(extractRelayPayloads(detailHtml), params.listing_id);
+    const detailMerged = findListingDetailById<RawMarketplaceListingNode>(
+      extractRelayPayloads(detailHtml),
+      params.listing_id,
+    );
     return { listing: mapMarketplaceListingDetail(detailMerged ?? updated) };
   },
 });
 
-// Walk all SSR Relay payloads, collect every node with id === targetId and a
-// listing-shaped __typename, and merge them — same pattern as get_listing.
-const findListingNode = (payloads: Array<{ data: unknown }>, targetId: string): ComposerListingNode | null => {
-  const fragments: ComposerListingNode[] = [];
-  for (const p of payloads) collectMatchingNodes(p.data, targetId, fragments);
-  if (fragments.length === 0) return null;
-  const merged: Record<string, unknown> = {};
-  for (const f of fragments) {
-    for (const [key, value] of Object.entries(f)) {
-      if (!isMeaningful(merged[key]) && isMeaningful(value)) merged[key] = value;
-    }
-  }
-  return merged as ComposerListingNode;
-};
-
-const LISTING_TYPENAMES = /^GroupCommerceProductItem$|^Marketplace.*Listing|MarketplaceProductItem/;
-
-const collectMatchingNodes = (data: unknown, targetId: string, out: ComposerListingNode[]): void => {
-  if (!data || typeof data !== 'object') return;
-  if (Array.isArray(data)) {
-    for (const item of data) collectMatchingNodes(item, targetId, out);
-    return;
-  }
-  const obj = data as Record<string, unknown>;
-  if (obj.id === targetId && typeof obj.__typename === 'string' && LISTING_TYPENAMES.test(obj.__typename)) {
-    out.push(obj as ComposerListingNode);
-  }
-  for (const k of Object.keys(obj)) collectMatchingNodes(obj[k], targetId, out);
-};
-
-const findSellLocation = (payloads: Array<{ data: unknown }>): SellerLocation | null => {
-  for (const p of payloads) {
-    const found = walkForSellLocation(p.data);
-    if (found) return found;
-  }
-  return null;
-};
-
-const walkForSellLocation = (v: unknown): SellerLocation | null => {
-  if (!v || typeof v !== 'object') return null;
-  if (Array.isArray(v)) {
-    for (const item of v) {
-      const r = walkForSellLocation(item);
-      if (r) return r;
-    }
-    return null;
-  }
-  const obj = v as Record<string, unknown>;
-  const sl = obj.sell_location as { latitude?: unknown; longitude?: unknown } | undefined;
-  if (sl && typeof sl.latitude === 'number' && typeof sl.longitude === 'number') {
-    return { latitude: sl.latitude, longitude: sl.longitude };
-  }
-  for (const k of Object.keys(obj)) {
-    const r = walkForSellLocation(obj[k]);
-    if (r) return r;
-  }
-  return null;
-};
-
-const findPrimaryCurrency = (payloads: Array<{ data: unknown }>): string | null => {
-  for (const p of payloads) {
-    const found = walkForPrimaryCurrency(p.data);
-    if (found) return found;
-  }
-  return null;
-};
-
-const walkForPrimaryCurrency = (v: unknown): string | null => {
-  if (!v || typeof v !== 'object') return null;
-  if (Array.isArray(v)) {
-    for (const item of v) {
-      const r = walkForPrimaryCurrency(item);
-      if (r) return r;
-    }
-    return null;
-  }
-  const obj = v as Record<string, unknown>;
-  if (typeof obj.primary_currency === 'string') return obj.primary_currency;
-  for (const k of Object.keys(obj)) {
-    const r = walkForPrimaryCurrency(obj[k]);
-    if (r) return r;
-  }
-  return null;
-};
-
 const parseAmount = (formatted: string): string => {
   const m = formatted.match(/[\d,]+(?:\.\d+)?/);
   return m ? m[0].replace(/,/g, '') : '';
-};
-
-const isMeaningful = (v: unknown): boolean => {
-  if (v === undefined || v === null) return false;
-  if (typeof v === 'string') return v.length > 0;
-  if (Array.isArray(v)) return v.length > 0;
-  if (typeof v === 'object') return Object.keys(v as object).length > 0;
-  return true;
 };
