@@ -50,6 +50,8 @@ const getAuth = (): FacebookAuth | null => {
 
 export const isAuthenticated = (): boolean => getAuth() !== null;
 
+export const getCurrentUserId = (): string | null => getAuth()?.userId ?? null;
+
 // Capped at 3000 ms because the OpenTabs extension treats isReady() as
 // failed after 5 s; leave headroom for the surrounding plumbing.
 export const waitForAuth = async (): Promise<boolean> => {
@@ -100,6 +102,7 @@ const populateFromSSRScripts = (cache: Record<string, string>): void => {
 const knownOps = [
   'CometMarketplaceYouSellingFastContentContainerQuery',
   'MarketplaceYouSellingFastActiveSectionPaginationQuery',
+  'useCometMarketplaceListingEditMutation',
 ];
 
 const populateDocIdCache = (): void => {

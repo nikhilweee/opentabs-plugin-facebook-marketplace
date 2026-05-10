@@ -27,12 +27,13 @@ opentabs start  # restart if it's already running
 
 ## Tools
 
-### Marketplace (2)
+### Marketplace (3)
 
-| Tool               | Description                                                                                               | Type |
-| ------------------ | --------------------------------------------------------------------------------------------------------- | ---- |
-| `list_my_listings` | Returns the current user's Marketplace listings (id, title, price, location, image, sold status).         | Read |
-| `get_listing`      | Given a listing id, returns full details: title, price, description, photos, location, seller, condition. | Read |
+| Tool               | Description                                                                                                    | Type  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- | ----- |
+| `list_my_listings` | Returns the current user's Marketplace listings (id, title, price, location, image, sold status).              | Read  |
+| `get_listing`      | Given a listing id, returns full details: title, price, description, photos, location, seller, condition.      | Read  |
+| `edit_listing`     | Updates text fields (title, price, description, condition) on one of the user's own listings. Returns updated. | Write |
 
 ## How It Works
 
