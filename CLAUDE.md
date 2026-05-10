@@ -57,8 +57,8 @@ world — the same context our adapter runs in), `browser_get_page_html`,
 - `opentabs tool list --plugin facebook-marketplace` — confirm registration.
 - `opentabs tool schema <plugin>_<tool>` — view input schema.
 - `opentabs tool call <plugin>_<tool> '<json>'` — invoke. Tool names are
-  plugin-prefixed (`facebook-marketplace_list_my_listings`). Pass `'{}'` for
-  no-input tools.
+  plugin-prefixed (`facebook-marketplace_my_listings`). Pass `'{}'` for no-input
+  tools.
 - `opentabs logs --plugin facebook-marketplace` — read `log.debug` / `log.info`
   from the handler. Useful for inspecting intermediate state without bloating
   the tool's response.

@@ -43,7 +43,7 @@ export const editListing = defineTool({
   group: 'Marketplace',
   input: z
     .object({
-      listing_id: z.string().min(1).describe('Marketplace listing ID (e.g., from list_my_listings)'),
+      listing_id: z.string().min(1).describe('Marketplace listing ID (e.g., from my_listings)'),
       title: z.string().min(1).max(200).optional().describe('New listing title'),
       price: z
         .string()

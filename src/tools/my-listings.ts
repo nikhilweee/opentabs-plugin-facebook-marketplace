@@ -9,9 +9,9 @@ const PAGINATION_OP = 'MarketplaceYouSellingFastActiveSectionPaginationQuery';
 const PAGE_SIZE = 50;
 const MAX_PAGES = 20;
 
-export const listMyListings = defineTool({
-  name: 'list_my_listings',
-  displayName: 'List My Marketplace Listings',
+export const myListings = defineTool({
+  name: 'my_listings',
+  displayName: 'My Marketplace Listings',
   summary: 'List your active Marketplace listings',
   description:
     "Returns the current user's active Marketplace listings. Loads the first page via the seller " +
@@ -25,7 +25,7 @@ export const listMyListings = defineTool({
     page_url: z.string().describe('URL of the "Your selling" page'),
   }),
   handle: async () => {
-    log.info('list_my_listings:fetch', { url: PAGE_URL });
+    log.info('my_listings:fetch', { url: PAGE_URL });
     const html = await fetchPageHtml(PAGE_URL);
     const metadata = extractSSRQueryMetadata(html);
     populateDocIdCacheFromMetadata(metadata);
@@ -63,7 +63,7 @@ export const listMyListings = defineTool({
     for (let page = 1; cursor && page <= MAX_PAGES; page++) {
       const resp = await graphql(PAGINATION_OP, { ...baseVars, cursor, status: null });
       const result = ingest(resp);
-      log.debug('list_my_listings:page', { page, added: result.added, total: listings.length });
+      log.debug('my_listings:page', { page, added: result.added, total: listings.length });
       if (!result.added || !result.cursor || result.cursor === cursor) break;
       cursor = result.cursor;
     }

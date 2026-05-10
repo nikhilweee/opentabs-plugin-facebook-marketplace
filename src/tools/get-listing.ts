@@ -18,7 +18,7 @@ export const getListing = defineTool({
   icon: 'shopping-bag',
   group: 'Marketplace',
   input: z.object({
-    listing_id: z.string().min(1).describe('Marketplace listing ID (e.g., one returned by list_my_listings)'),
+    listing_id: z.string().min(1).describe('Marketplace listing ID (e.g., one returned by my_listings)'),
   }),
   output: z.object({
     listing: marketplaceListingDetailSchema,

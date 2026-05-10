@@ -3,14 +3,14 @@ import { waitForAuth } from './facebook-api.js';
 import { createListing } from './tools/create-listing.js';
 import { editListing } from './tools/edit-listing.js';
 import { getListing } from './tools/get-listing.js';
-import { listMyListings } from './tools/list-my-listings.js';
+import { myListings } from './tools/my-listings.js';
 
 class FacebookMarketplacePlugin extends OpenTabsPlugin {
   readonly name = 'facebook-marketplace';
   readonly description = 'OpenTabs plugin for Facebook Marketplace';
   override readonly displayName = 'Facebook Marketplace';
   readonly urlPatterns = ['*://*.facebook.com/*'];
-  readonly tools: ToolDefinition[] = [listMyListings, getListing, editListing, createListing];
+  readonly tools: ToolDefinition[] = [myListings, getListing, editListing, createListing];
 
   async isReady(): Promise<boolean> {
     return waitForAuth();

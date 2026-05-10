@@ -40,7 +40,7 @@ export const createListing = defineTool({
   description:
     'Creates and publishes a new "Item for sale" listing on Facebook Marketplace. Photos are uploaded ' +
     "to FB and then attached. Location, currency, and marketplace_id are read from the seller's composer " +
-    "state. category_id must be supplied (look up an existing listing's category_id via list_my_listings " +
+    "state. category_id must be supplied (look up an existing listing's category_id via my_listings " +
     "if unsure). Returns the new listing detail. The listing may enter a 'review' state before going live.",
   icon: 'plus-circle',
   group: 'Marketplace',
@@ -55,7 +55,7 @@ export const createListing = defineTool({
       .string()
       .min(1)
       .describe(
-        'Facebook Marketplace category ID (e.g., "1569171756675761" for Home / Garden / Decor). Reuse a category_id from an existing similar listing via list_my_listings.',
+        'Facebook Marketplace category ID (e.g., "1569171756675761" for Home / Garden / Decor). Reuse a category_id from an existing similar listing via my_listings.',
       ),
     condition: z.enum(['NEW', 'USED_LIKE_NEW', 'USED_GOOD', 'USED_FAIR']).describe('Item condition'),
     photos: z
