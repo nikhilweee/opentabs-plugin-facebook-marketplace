@@ -104,6 +104,7 @@ const knownOps = [
   'MarketplaceYouSellingFastActiveSectionPaginationQuery',
   'useCometMarketplaceListingEditMutation',
   'useCometMarketplaceListingCreateMutation',
+  'useCometMarketplaceForSaleItemDeleteMutation',
 ];
 
 const populateDocIdCache = (): void => {

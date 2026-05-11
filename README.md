@@ -27,7 +27,7 @@ opentabs start  # restart if it's already running
 
 ## Tools
 
-### Marketplace (4)
+### Marketplace (5)
 
 | Tool             | Description                                                                                                    | Type  |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- | ----- |
@@ -35,6 +35,7 @@ opentabs start  # restart if it's already running
 | `get_listing`    | Given a listing id, returns full details: title, price, description, photos, location, seller, condition.      | Read  |
 | `edit_listing`   | Updates text fields (title, price, description, condition) on one of the user's own listings. Returns updated. | Write |
 | `create_listing` | Publishes a new "Item for sale" listing. Uploads photos (base64 input), then fires the create mutation.        | Write |
+| `delete_listing` | Permanently deletes one of the user's listings. Irreversible. Returns the deleted id + remaining count.        | Write |
 
 ## How It Works
 
