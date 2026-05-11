@@ -65,14 +65,27 @@ world — the same context our adapter runs in), `browser_get_page_html`,
 
 ## Gotchas
 
-Non-obvious FB / Relay things that took time to discover — keep these in mind
-when adding new tools:
+Non-obvious things that took time to discover — keep these in mind when adding
+new tools or wiring up calls:
 
-- **Doc-IDs auto-resolve via `fbRequire(<OpName>_facebookRelayOperation)`** for
-  any operation module already loaded in the page. The `populateFromSSRScripts`
-  regex also catches `{queryID, queryName}` triples in SSR HTML.
-  Pagination/refetch ops only become resolvable after the user has navigated to
-  a page that loads them.
+- **Doc-ID resolution is layered** (`resolveDocId` in `facebook-api.ts`):
+  1. `fbRequire(<OpName>_facebookRelayOperation)` for modules already loaded
+     in-page.
+  2. `populateFromSSRScripts` — `{queryID, queryName}` triples in SSR HTML of
+     the *current* page (prefetched **queries** only; mutations aren't here).
+  3. **Bundle walk** — on miss, `fetchPageHtml` an "anchor" page
+     (`/marketplace/create/item` for composer ops, `/marketplace/you/selling`
+     for delete/pagination), regex out the `<script src>` CDN URLs, parallel
+     `fetch` each bundle, and grep `__d("<Op>_facebookRelayOperation",[],…
+     exports="<id>")`. Both the doc-id cache and the "already walked" tracker
+     live on `globalThis` (`__fbDocIdCache`, `__fbWalkedAnchors`) so adapter
+     IIFE re-injection between tool calls doesn't lose them.
+
+  Slow path costs ~12 MB JS per anchor on cold cache (browser-cached after).
+  Future improvements worth trying: inspect the SSR Bootloader manifest to
+  map op-name → bundle directly (one targeted fetch instead of fan-out);
+  pre-warm at `isReady()` so tool calls never pay the cold cost; persist the
+  cache in `localStorage` keyed by FB client version so reloads don't re-walk.
 - **SSR pages contain _multiple_ Relay fragments about the same entity**, each
   with a different field subset (one fragment carries price+photos, another
   carries description+seller, etc.). For detail-page tools, collect _all_
@@ -85,3 +98,16 @@ when adding new tools:
   each `edges[i].cursor` (per-edge, not connection-level `page_info`). Stop on
   no-cursor / no-progress. Both queries hit the same connection
   (`viewer.marketplace_listing_sets`) and share most variables.
+- **Large payloads exceed the argv limit** — the positional JSON arg and
+  `--params` both go through argv (~1 MB OS cap). For `create_listing` with
+  base64-encoded photos and similar, use `--params-file <path>` (or `-` for
+  stdin) on `@opentabs-dev/cli@0.0.109+`:
+
+  ```bash
+  opentabs tool call facebook-marketplace_create_listing --params-file payload.json
+  # or pipe via stdin:
+  jq -nc '...' | opentabs tool call facebook-marketplace_create_listing --params-file -
+  ```
+
+  Bypasses argv entirely. Fixed upstream in
+  [opentabs#91](https://github.com/opentabs-dev/opentabs/issues/91).

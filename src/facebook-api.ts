@@ -119,18 +119,82 @@ const populateDocIdCache = (): void => {
 
 populateDocIdCache();
 
-export const resolveDocId = (operationName: string): string => {
+// "Anchor" pages whose code-split bundles declare the operation modules we need.
+// Order matters: composer covers create/edit + the read queries our composer-aware
+// tools need; selling covers delete + pagination. Walked lazily on cache miss.
+const ANCHOR_PAGES = [
+  'https://www.facebook.com/marketplace/create/item',
+  'https://www.facebook.com/marketplace/you/selling',
+];
+
+// Tracks which anchors we've already walked this session, so a missing op
+// doesn't trigger a re-walk on every call. Stashed on globalThis so adapter
+// IIFE re-injection (each tool call gets a fresh module scope) doesn't lose it.
+const getWalkedAnchors = (): Set<string> => {
+  const g = globalThis as Record<string, unknown>;
+  if (!(g.__fbWalkedAnchors instanceof Set)) g.__fbWalkedAnchors = new Set<string>();
+  return g.__fbWalkedAnchors as Set<string>;
+};
+
+const BUNDLE_URL_PATTERN = /<script[^>]+src="(https:\/\/static\.xx\.fbcdn\.net\/[^"]+\.js[^"]*)"/g;
+// __d("OpName_facebookRelayOperation",[],(function(...){...exports="<docId>"}),null)
+const OP_DECL_PATTERN =
+  /__d\("([A-Za-z0-9_]+)_facebookRelayOperation",\[\],\(function\([^)]*\)\{[^}]*\.exports="(\d+)"\}\),null\)/g;
+
+const walkBundlesFromAnchor = async (anchorUrl: string): Promise<void> => {
+  const html = await fetchPageHtml(anchorUrl);
+  const bundleUrls = Array.from(html.matchAll(BUNDLE_URL_PATTERN), m => m[1]).filter(
+    (u): u is string => typeof u === 'string',
+  );
+  log.debug('doc_id:walk_anchor', { anchor: anchorUrl, bundles: bundleUrls.length });
+
+  const cache = getDocIdCache();
+  await Promise.all(
+    bundleUrls.map(async url => {
+      try {
+        // Plain fetch (no credentials) — these are public CDN bundles with
+        // permissive CORS; credentialed fetch is rejected.
+        const resp = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(30_000) });
+        if (!resp.ok) return;
+        const body = await resp.text();
+        for (const m of body.matchAll(OP_DECL_PATTERN)) {
+          const name = m[1];
+          const id = m[2];
+          if (name && id && !cache[name]) cache[name] = id;
+        }
+      } catch (e) {
+        log.debug('doc_id:bundle_fetch_failed', { url: url.slice(0, 80), error: String(e) });
+      }
+    }),
+  );
+};
+
+// Resolve a doc_id for an operation name. Fast path uses the in-page Relay
+// module registry and the cache; slow path fetches anchor pages and walks their
+// code-split JS bundles to recover declarations that haven't been lazy-loaded.
+// The slow path is gated by `walkedAnchors` so we only walk each anchor once
+// per session.
+export const resolveDocId = async (operationName: string): Promise<string> => {
   const fresh = fbRequire<string>(`${operationName}_facebookRelayOperation`);
   if (fresh !== undefined) {
     getDocIdCache()[operationName] = String(fresh);
     return String(fresh);
   }
-  const cached = getDocIdCache()[operationName];
+  let cached = getDocIdCache()[operationName];
   if (cached) return cached;
 
+  const walked = getWalkedAnchors();
+  for (const anchor of ANCHOR_PAGES) {
+    if (walked.has(anchor)) continue;
+    walked.add(anchor);
+    await walkBundlesFromAnchor(anchor);
+    cached = getDocIdCache()[operationName];
+    if (cached) return cached;
+  }
+
   throw ToolError.internal(
-    `Could not resolve doc_id for ${operationName}. ` +
-      'The required Relay module may not be loaded — try navigating to the relevant Facebook page first.',
+    `Could not resolve doc_id for ${operationName} after walking anchor bundles. ` +
+      'Facebook may have reorganized its bundle layout — see CLAUDE.md "doc_id resolution".',
   );
 };
 
@@ -143,7 +207,7 @@ export const graphql = async <T = unknown>(
   variables: Record<string, unknown> = {},
 ): Promise<T> => {
   const auth = requireAuth();
-  const docId = resolveDocId(operationName);
+  const docId = await resolveDocId(operationName);
   log.debug('graphql:request', { operationName, docId });
 
   const body = new URLSearchParams({

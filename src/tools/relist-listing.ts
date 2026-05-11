@@ -88,6 +88,22 @@ export const relistListing = defineTool({
       );
     }
 
+    // Snapshot the original — captured BEFORE any destructive action so it's
+    // recoverable from `opentabs logs --plugin facebook-marketplace` if the
+    // create step (or anything downstream) fails. Photo URLs are FB CDN signed
+    // links; they may stay reachable for a short window even after the listing
+    // is deleted, useful for quick recovery.
+    log.info('relist_listing:original_snapshot', {
+      listing_id: params.listing_id,
+      title: mappedOriginal.title,
+      price: mappedOriginal.price,
+      price_amount: mappedOriginal.price_amount,
+      description: mappedOriginal.description,
+      category_id: mappedOriginal.category_id,
+      condition: mappedOriginal.condition,
+      photo_urls: mappedOriginal.photo_urls,
+    });
+
     // 2. Fetch composer SSR for sell_location + currency + marketplace_id.
     const composerHtml = await fetchPageHtml(COMPOSER_URL);
     const composerPayloads = extractRelayPayloads(composerHtml);
@@ -110,7 +126,26 @@ export const relistListing = defineTool({
       photoIds.push(id);
     }
 
-    // 4. Build create-mutation input. Field set mirrors create_listing's. Use
+    // 4. Delete the original BEFORE creating the new one, so FB's duplicate
+    // detection doesn't see two identical listings simultaneously. Brief sleep
+    // afterwards to let FB's index catch up.
+    const deleteInput = {
+      actor_id: actorId,
+      client_mutation_id: '1',
+      batch_delete_variants: true,
+      for_sale_item_id: params.listing_id,
+      referral_surface: 'COMPOSER',
+      surface: 'MARKETPLACE_PAGE_SELLING',
+    };
+    const deleteResp = await graphql<DeleteMutationResponse>(DELETE_OP, { input: deleteInput });
+    const deletedId = deleteResp?.commerce_for_sale_item_delete?.deleted_for_sale_item_id;
+    if (deletedId !== params.listing_id) {
+      log.warn('relist_listing:delete_mismatch', { expected: params.listing_id, got: deletedId });
+    }
+    log.info('relist_listing:deleted_original', { old_id: params.listing_id });
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // 5. Build create-mutation input. Field set mirrors create_listing's. Use
     // overrides where supplied, else fall back to the original's values.
     // Condition: original is already PC_-stripped by the mapper (e.g., "USED_LIKE_NEW").
     const finalTitle = params.title ?? mappedOriginal.title;
@@ -126,7 +161,7 @@ export const relistListing = defineTool({
 
     const createInput = {
       actor_id: actorId,
-      client_mutation_id: '1',
+      client_mutation_id: '2',
       audience: { marketplace: { marketplace_id: marketplaceId } },
       data: {
         common: {
@@ -177,28 +212,17 @@ export const relistListing = defineTool({
       },
     };
 
-    // 5. Fire create. If this fails, the original is still intact.
+    // 6. Fire create. If this fails, the original is already gone — the caller
+    // needs to recover manually (photos are still uploaded, photo_ids could be
+    // reused). Worth surfacing the photo_ids in the error message for recovery.
     const createResp = await graphql<CreateMutationResponse>(CREATE_OP, { input: createInput });
     const newListing = createResp?.marketplace_listing_create?.listing;
-    if (!newListing?.id) throw ToolError.internal('Create mutation returned no listing.');
-    log.info('relist_listing:created', { new_id: newListing.id });
-
-    // 6. Now delete the original. If this fails the user has both old and new
-    // (recoverable — they can delete the old via UI or our delete_listing tool).
-    const deleteInput = {
-      actor_id: actorId,
-      client_mutation_id: '2',
-      batch_delete_variants: true,
-      for_sale_item_id: params.listing_id,
-      referral_surface: 'COMPOSER',
-      surface: 'MARKETPLACE_PAGE_SELLING',
-    };
-    const deleteResp = await graphql<DeleteMutationResponse>(DELETE_OP, { input: deleteInput });
-    const deletedId = deleteResp?.commerce_for_sale_item_delete?.deleted_for_sale_item_id;
-    if (deletedId !== params.listing_id) {
-      log.warn('relist_listing:delete_mismatch', { expected: params.listing_id, got: deletedId });
+    if (!newListing?.id) {
+      throw ToolError.internal(
+        `Create mutation returned no listing after delete. The old listing (${params.listing_id}) is already deleted. Uploaded photo_ids: ${JSON.stringify(photoIds)} — these can be reused in a manual create_listing retry.`,
+      );
     }
-    log.info('relist_listing:deleted_original', { old_id: params.listing_id });
+    log.info('relist_listing:created', { new_id: newListing.id });
 
     // 7. Re-fetch the new listing's PDP for a rich response.
     const newDetailUrl = `https://www.facebook.com/marketplace/item/${encodeURIComponent(newListing.id)}/`;

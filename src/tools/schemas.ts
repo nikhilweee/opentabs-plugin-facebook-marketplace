@@ -16,6 +16,7 @@ export const marketplaceListingSchema = z.object({
   image_url: z.string().describe('Primary listing photo URL'),
   is_sold: z.boolean().describe('Whether the item has been sold'),
   category_id: z.string().describe('Marketplace category ID'),
+  created_at: z.number().int().describe('Unix timestamp when the listing was created (0 if not exposed by FB summary)'),
 });
 
 export interface RawMarketplaceListingNode {
@@ -69,6 +70,7 @@ export const mapMarketplaceListing = (edge: RawMarketplaceListingEdge) => {
     image_url: l?.primary_listing_photo?.image?.uri ?? '',
     is_sold: l?.is_sold ?? false,
     category_id: l?.marketplace_listing_category_id ?? '',
+    created_at: l?.creation_time ?? 0,
   };
 };
 
