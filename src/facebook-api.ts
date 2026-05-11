@@ -213,17 +213,12 @@ export const graphql = async <T = unknown>(
 // Photo upload (non-GraphQL — multipart to upload.facebook.com)
 // ---------------------------------------------------------------------------
 
-// Upload a single photo to Facebook's composer endpoint. Returns the photoID
+// Upload a Blob to Facebook's composer photo endpoint. Returns the photoID
 // suitable for use in marketplace listing mutations' `photo_ids` field.
-// `data` is base64-encoded image bytes (no `data:` prefix). `targetId` is the
-// destination marketplace's id (from viewer.marketplace_settings.current_marketplace.id).
-export const uploadPhoto = async (data: string, mime: string, filename: string, targetId: string): Promise<string> => {
+// `targetId` is the destination marketplace's id (from
+// viewer.marketplace_settings.current_marketplace.id).
+const uploadPhotoBlob = async (blob: Blob, filename: string, targetId: string): Promise<string> => {
   const auth = requireAuth();
-
-  const binary = atob(data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const blob = new Blob([bytes], { type: mime });
 
   // Read intrinsic dimensions — FB requires them as form fields. createImageBitmap
   // is available in the page MAIN world where our adapter runs.
@@ -303,6 +298,27 @@ export const uploadPhoto = async (data: string, mime: string, filename: string, 
     throw ToolError.internal('Photo upload returned no photoID.');
   }
   return photoId;
+};
+
+// Upload a photo from base64-encoded bytes. `data` has no `data:` prefix.
+export const uploadPhoto = async (data: string, mime: string, filename: string, targetId: string): Promise<string> => {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return uploadPhotoBlob(new Blob([bytes], { type: mime }), filename, targetId);
+};
+
+// Upload a photo by fetching its bytes from a URL. Used by relist_listing to
+// re-upload photos from the existing listing's CDN URLs. Uses plain fetch
+// without credentials — FB CDN URLs are signed and reject cross-origin
+// credentialed requests.
+export const uploadPhotoFromUrl = async (url: string, filename: string, targetId: string): Promise<string> => {
+  const resp = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(30_000) });
+  if (!resp.ok) {
+    throw httpStatusToToolError(resp, `Failed to fetch photo from ${url}: HTTP ${resp.status}`);
+  }
+  const blob = await resp.blob();
+  return uploadPhotoBlob(blob, filename, targetId);
 };
 
 // ---------------------------------------------------------------------------

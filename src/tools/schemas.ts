@@ -105,7 +105,7 @@ export const mapMarketplaceListingDetail = (l: RawMarketplaceListingNode | undef
     is_sold: node.is_sold ?? false,
     category_id: node.marketplace_listing_category_id ?? '',
     description: node.description?.text ?? node.redacted_description?.text ?? '',
-    condition: node.condition ?? node.marketplace_listing_condition ?? '',
+    condition: (node.condition ?? node.marketplace_listing_condition ?? '').replace(/^PC_/, ''),
     url: node.id ? `https://www.facebook.com/marketplace/item/${node.id}/` : '',
     created_at: node.creation_time ?? 0,
   };
