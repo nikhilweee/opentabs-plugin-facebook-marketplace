@@ -8,8 +8,8 @@ Marketplace through your authenticated browser session.
 This plugin is not yet published. To run it locally:
 
 ```bash
-git clone <this repo>
-cd facebook-marketplace
+git clone https://github.com/nikhilweee/opentabs-plugin-facebook-marketplace.git
+cd opentabs-plugin-facebook-marketplace
 npm install
 npm run build   # auto-registers the plugin in ~/.opentabs/config.json
 opentabs start  # restart if it's already running
