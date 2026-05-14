@@ -5,19 +5,18 @@ Marketplace through your authenticated browser session.
 
 ## Install
 
-This plugin is not yet published. To run it locally:
-
 ```bash
-git clone https://github.com/nikhilweee/opentabs-plugin-facebook-marketplace.git
-cd opentabs-plugin-facebook-marketplace
-npm install
-npm run build   # auto-registers the plugin in ~/.opentabs/config.json
+opentabs plugin install facebook-marketplace
 opentabs start  # restart if it's already running
 ```
 
-> Once published, `opentabs plugin install facebook-marketplace` (or
-> `npm install -g opentabs-plugin-facebook-marketplace`) will be the supported
-> install path.
+> From source (for development):
+>
+> ```bash
+> git clone https://github.com/nikhilweee/opentabs-plugin-facebook-marketplace.git
+> cd opentabs-plugin-facebook-marketplace
+> npm install && npm run build   # auto-registers in ~/.opentabs/config.json
+> ```
 
 ## Setup
 
@@ -45,13 +44,11 @@ This plugin runs inside your Facebook Marketplace tab through the
 session — no API tokens or OAuth apps required.
 
 Under the hood it talks to Facebook's internal GraphQL endpoint
-(`/api/graphql/`) using auth tokens (`fb_dtsg`, `lsd`, `USER_ID`) extracted from
-the page's Relay modules. Persisted-query `doc_id`s are resolved at runtime via
-`require('<OpName>_facebookRelayOperation')` so they survive Facebook's frequent
-client deploys. `my_listings` cursor-paginates through the seller's listing
-connection; `get_listing` reads the SSR-prefetched Relay payloads embedded in
-the listing page's HTML and merges every fragment that references the target id
-(each fragment carries a different subset of fields).
+(`/api/graphql/`) using auth tokens extracted from the page session.
+Persisted-query `doc_id`s are resolved at runtime so they survive FB's
+frequent client deploys. `my_listings` cursor-paginates through the seller's
+listing connection; `get_listing` merges every SSR-prefetched Relay fragment
+that references the target id.
 
 ## License
 
