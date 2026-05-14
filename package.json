@@ -1,7 +1,7 @@
 {
   "name": "opentabs-plugin-facebook-marketplace",
   "description": "OpenTabs plugin for Facebook Marketplace",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "dist/adapter.iife.js",
   "license": "MIT",
